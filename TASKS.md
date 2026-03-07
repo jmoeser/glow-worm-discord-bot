@@ -105,36 +105,36 @@ Tasks are ordered by dependency. Complete each before moving to the next.
 
 ## 7. Handler (`bot/handler.py`)
 
-- [ ] Implement `handle(message_content: str, channel) -> None` as the main entry point
-- [ ] Call `parse()` — return immediately (silently) if `None`
-- [ ] Call the appropriate resolver based on `ParseResult.intent`
-- [ ] On resolver error, send the appropriate error message to the channel (see SPEC error table)
-- [ ] On successful resolve, branch on `CONFIRM_TRANSACTIONS`:
+- [x] Implement `handle(message_content: str, channel) -> None` as the main entry point
+- [x] Call `parse()` — return immediately (silently) if `None`
+- [x] Call the appropriate resolver based on `ParseResult.intent`
+- [x] On resolver error, send the appropriate error message to the channel (see SPEC error table)
+- [x] On successful resolve, branch on `CONFIRM_TRANSACTIONS`:
   - **True (Phase 1):** build and send a confirmation embed, wait up to 60 seconds for a
     ✅ or ❌ reaction from the original message author; on ✅ commit, on ❌/timeout reply "Cancelled."
   - **False (Phase 2):** immediately call `create_transaction()`, then send a success embed
     showing the remaining budget or fund balance
-- [ ] Success embed for budget expense:
+- [x] Success embed for budget expense:
   ```
   ✅ Added $<amount> to <Category> (<Month Year>)
      Budget remaining: $<allocated - spent>
   ```
-- [ ] Success embed for sinking fund withdrawal:
+- [x] Success embed for sinking fund withdrawal:
   ```
   ✅ Withdrew $<amount> from <Fund> — <Category>
      Fund balance: $<current_balance>
   ```
-- [ ] Success embed for sinking fund contribution:
+- [x] Success embed for sinking fund contribution:
   ```
   ✅ Deposited $<amount> to <Fund> — <Category>
      Fund balance: $<current_balance>
   ```
-- [ ] Success embed for variable bill payment:
+- [x] Success embed for variable bill payment:
   ```
   ✅ Paid $<amount> for <Bill name>
   ```
-- [ ] On API error, send the error message with the HTTP status code
-- [ ] On network error, send the network error message
+- [x] On API error, send the error message with the HTTP status code
+- [x] On network error, send the network error message
 
 ---
 
