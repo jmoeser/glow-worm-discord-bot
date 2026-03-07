@@ -21,6 +21,7 @@ The glow-worm API lives at `/Users/jordan/git/glow-worm`. Refer to it for:
 ## Stack
 
 - Python 3.14+
+- `uv` — package manager and virtualenv tool (use instead of pip/venv)
 - `discord.py` — bot framework
 - `httpx` — async HTTP client for glow-worm API calls
 - `python-dotenv` — local env var loading
@@ -66,6 +67,22 @@ Unit tests must be written for all implementation work. Every new module or non-
 function should have a corresponding test file in `tests/`. Tests use `pytest` and
 `pytest-asyncio` (with `asyncio_mode = "auto"`). Do not consider a task complete until
 tests are written and passing.
+
+### Running tests
+
+```bash
+# Install dependencies (first time or after pyproject.toml changes)
+uv sync
+
+# Run all tests
+uv run pytest
+
+# Run a specific test file
+uv run pytest tests/test_cache.py -v
+```
+
+Dependencies are managed via `uv`. Never use `pip install` directly — add packages to
+`pyproject.toml` and run `uv sync`.
 
 ## Timezone
 
