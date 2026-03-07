@@ -140,14 +140,14 @@ Tasks are ordered by dependency. Complete each before moving to the next.
 
 ## 8. Bot entry point (`bot/main.py`)
 
-- [ ] Create the `discord.Client` with the required `message_content` intent enabled
-- [ ] In `on_ready`, initialise the cache (fetch all reference data) and start the hourly
+- [x] Create the `discord.Client` with the required `message_content` intent enabled
+- [x] In `on_ready`, initialise the cache (fetch all reference data) and start the hourly
       refresh task; log bot name and guilds to stdout
-- [ ] In `on_message`:
+- [x] In `on_message`:
   - Ignore messages from bots (including self)
   - Ignore messages not in `DISCORD_CHANNEL_ID`
   - Pass `message.content` and the channel to `handle()`
-- [ ] Start the bot with `client.run(config.DISCORD_TOKEN)`
+- [x] Start the bot with `client.run(config.DISCORD_TOKEN)`
 
 ---
 
