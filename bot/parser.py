@@ -1,5 +1,5 @@
-import re
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -15,14 +15,12 @@ AMOUNT_PAT = r"\$?(\d+(?:\.\d{1,2})?)"
 DATE_PAT = r"(?:\s+(yesterday|today|last\s+\w+))?$"
 
 EXPENSE_RE = re.compile(
-    r"^(spent|spend|buy|bought|purchase|purchased)\s+"
-    + AMOUNT_PAT + r"\s+(.+?)" + DATE_PAT,
+    r"^(spent|spend|buy|bought|purchase|purchased)\s+" + AMOUNT_PAT + r"\s+(.+?)" + DATE_PAT,
     re.IGNORECASE,
 )
 
 DEPOSIT_RE = re.compile(
-    r"^(deposit|deposited|save|saved)\s+"
-    + AMOUNT_PAT + r"\s+(.+?)" + DATE_PAT,
+    r"^(deposit|deposited|save|saved)\s+" + AMOUNT_PAT + r"\s+(.+?)" + DATE_PAT,
     re.IGNORECASE,
 )
 
@@ -49,7 +47,7 @@ _WEEKDAYS = {
 
 @dataclass
 class ParseResult:
-    intent: str          # "expense", "deposit", or "bill"
+    intent: str  # "expense", "deposit", or "bill"
     amount: float
     raw_name_tokens: list[str]
     raw_date_hint: str | None

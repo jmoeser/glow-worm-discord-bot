@@ -1,5 +1,5 @@
 """Tests for bot/handler.py."""
-import asyncio
+
 import os
 
 os.environ.setdefault("DISCORD_TOKEN", "test-token")
@@ -18,7 +18,6 @@ from bot.client import APIError
 from bot.handler import _build_payload, _error_text, handle
 from bot.parser import ParseResult
 from bot.resolver import ResolveResult
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -168,9 +167,7 @@ def test_error_text_no_match_bill_no_url():
 
 
 def test_error_text_ambiguous():
-    resolved = ResolveResult(
-        error="ambiguous", error_message="Multiple matches: A, B."
-    )
+    resolved = ResolveResult(error="ambiguous", error_message="Multiple matches: A, B.")
     result = ParseResult("expense", 10.0, ["a"], None, None)
     text = _error_text(resolved, result)
     assert text == "Multiple matches: A, B."
@@ -478,7 +475,7 @@ async def test_handle_confirm_flow_timeout():
     cancel_send = AsyncMock()
     msg.channel.send = AsyncMock(side_effect=[preview_msg, cancel_send])
 
-    bot.wait_for = AsyncMock(side_effect=asyncio.TimeoutError())
+    bot.wait_for = AsyncMock(side_effect=TimeoutError())
 
     resolved = ResolveResult(
         transaction_type="budget_expense",
@@ -510,9 +507,7 @@ async def test_handle_confirm_flow_timeout():
 async def test_handle_api_error_sends_message():
     msg = _make_message("spent $20 groceries")
     http_client = _make_http_client()
-    http_client.create_transaction = AsyncMock(
-        side_effect=APIError(500, "Internal Server Error")
-    )
+    http_client.create_transaction = AsyncMock(side_effect=APIError(500, "Internal Server Error"))
     bot = _make_bot()
 
     resolved = ResolveResult(
@@ -541,9 +536,7 @@ async def test_handle_api_error_sends_message():
 async def test_handle_network_error_sends_message():
     msg = _make_message("spent $20 groceries")
     http_client = _make_http_client()
-    http_client.create_transaction = AsyncMock(
-        side_effect=httpx.RequestError("Connection refused")
-    )
+    http_client.create_transaction = AsyncMock(side_effect=httpx.RequestError("Connection refused"))
     bot = _make_bot()
 
     resolved = ResolveResult(

@@ -20,6 +20,7 @@ from bot.parser import ParseResult, parse, resolve_date
 
 def _today() -> date:
     from datetime import datetime
+
     return datetime.now(TIMEZONE).date()
 
 
@@ -259,15 +260,18 @@ def test_resolve_date_yesterday():
     assert resolve_date("yesterday") == today - timedelta(days=1)
 
 
-@pytest.mark.parametrize("weekday_name,weekday_index", [
-    ("monday", 0),
-    ("tuesday", 1),
-    ("wednesday", 2),
-    ("thursday", 3),
-    ("friday", 4),
-    ("saturday", 5),
-    ("sunday", 6),
-])
+@pytest.mark.parametrize(
+    "weekday_name,weekday_index",
+    [
+        ("monday", 0),
+        ("tuesday", 1),
+        ("wednesday", 2),
+        ("thursday", 3),
+        ("friday", 4),
+        ("saturday", 5),
+        ("sunday", 6),
+    ],
+)
 def test_resolve_date_last_weekday(weekday_name, weekday_index):
     today = _today()
     result = resolve_date(f"last {weekday_name}")
@@ -282,7 +286,9 @@ def test_resolve_date_last_weekday(weekday_name, weekday_index):
 def test_resolve_date_last_weekday_not_today():
     """'last <weekday>' when today is that weekday should return 7 days ago."""
     today = _today()
-    weekday_name = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"][today.weekday()]
+    weekday_name = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"][
+        today.weekday()
+    ]
     result = resolve_date(f"last {weekday_name}")
     assert result == today - timedelta(days=7)
 

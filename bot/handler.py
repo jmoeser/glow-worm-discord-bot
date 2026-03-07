@@ -1,6 +1,5 @@
-import asyncio
 import logging
-from datetime import datetime
+from datetime import date, datetime
 
 import discord
 import httpx
@@ -10,6 +9,7 @@ from bot import config
 from bot.client import APIError, GlowWormClient
 from bot.parser import ParseResult, parse, resolve_date
 from bot.resolver import ResolveResult, resolve_bill, resolve_deposit, resolve_expense
+from bot.types import TransactionPayload
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +53,13 @@ async def handle(
 # ---------------------------------------------------------------------------
 
 
-def _build_payload(result: ParseResult, resolved: ResolveResult, today) -> dict:
+def _build_payload(result: ParseResult, resolved: ResolveResult, today: date) -> TransactionPayload:
     if resolved.transaction_type == "contribution":
         tx_type = "income"
     else:
         tx_type = "expense"
 
-    payload: dict = {
+    payload: TransactionPayload = {
         "date": today.isoformat(),
         "amount": result.amount,
         "description": resolved.description,
@@ -86,7 +86,9 @@ def _build_payload(result: ParseResult, resolved: ResolveResult, today) -> dict:
 def _error_text(resolved: ResolveResult, result: ParseResult) -> str:
     msg = resolved.error_message or "An error occurred."
     if resolved.error == "no_match" and result.intent in ("expense", "deposit"):
-        msg += f" If it's a new category, create it in glow-worm first at {config.GLOWWORM_API_URL}."
+        msg += (
+            f" If it's a new category, create it in glow-worm first at {config.GLOWWORM_API_URL}."  # noqa: E501
+        )
     return msg
 
 
@@ -99,7 +101,7 @@ async def _confirm_flow(
     message: discord.Message,
     bot: discord.Client,
     http_client: GlowWormClient,
-    payload: dict,
+    payload: TransactionPayload,
     result: ParseResult,
     resolved: ResolveResult,
 ) -> None:
@@ -108,7 +110,7 @@ async def _confirm_flow(
     await preview_msg.add_reaction(CHECK)
     await preview_msg.add_reaction(CROSS)
 
-    def check(reaction, user):
+    def check(reaction: discord.Reaction, user: discord.abc.User) -> bool:
         return (
             user == message.author
             and reaction.message.id == preview_msg.id
@@ -117,7 +119,7 @@ async def _confirm_flow(
 
     try:
         reaction, _ = await bot.wait_for("reaction_add", check=check, timeout=60.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         await message.channel.send("Cancelled.")
         return
 
@@ -136,7 +138,7 @@ async def _confirm_flow(
 async def _auto_commit(
     message: discord.Message,
     http_client: GlowWormClient,
-    payload: dict,
+    payload: TransactionPayload,
     result: ParseResult,
     resolved: ResolveResult,
 ) -> None:
@@ -151,7 +153,7 @@ async def _auto_commit(
 async def _commit(
     message: discord.Message,
     http_client: GlowWormClient,
-    payload: dict,
+    payload: TransactionPayload,
     result: ParseResult,
     resolved: ResolveResult,
 ) -> None:
@@ -173,7 +175,7 @@ async def _commit(
 
 
 def _build_preview_embed(
-    result: ParseResult, resolved: ResolveResult, payload: dict
+    result: ParseResult, resolved: ResolveResult, payload: TransactionPayload
 ) -> discord.Embed:
     tx_type = resolved.transaction_type
     if tx_type == "budget_expense":
@@ -228,7 +230,7 @@ async def _build_success_embed(
     http_client: GlowWormClient,
     result: ParseResult,
     resolved: ResolveResult,
-    payload: dict,
+    payload: TransactionPayload,
 ) -> discord.Embed:
     embed = discord.Embed(color=discord.Color.green())
     tx_type = resolved.transaction_type
@@ -241,10 +243,11 @@ async def _build_success_embed(
 
     if tx_type == "budget_expense":
         d = datetime.fromisoformat(date_str).date()
+        assert resolved.category_id is not None
         budgets = await http_client.get_budgets(resolved.category_id, d.month, d.year)
         if budgets:
             budget = budgets[0]
-            remaining = budget.get("allocated_amount", 0) - budget.get("spent_amount", 0)
+            remaining = budget["allocated_amount"] - budget["spent_amount"]
             month_label = d.strftime("%B %Y")
             embed.description = (
                 f"{CHECK} Added {amount_str} to {cat_name} ({month_label})\n"
@@ -257,8 +260,9 @@ async def _build_success_embed(
         funds = cache.get_sinking_funds()
         fund = next((f for f in funds if f["id"] == resolved.sinking_fund_id), None)
         fund_name = fund["name"] if fund else "Unknown"
+        assert resolved.sinking_fund_id is not None
         fund_data = await http_client.get_sinking_fund(resolved.sinking_fund_id)
-        balance = fund_data.get("current_balance", 0)
+        balance = fund_data["current_balance"]
         embed.description = (
             f"{CHECK} Withdrew {amount_str} from {fund_name} \u2014 {cat_name}\n"
             f"   Fund balance: ${balance:.2f}"
@@ -268,8 +272,9 @@ async def _build_success_embed(
         funds = cache.get_sinking_funds()
         fund = next((f for f in funds if f["id"] == resolved.sinking_fund_id), None)
         fund_name = fund["name"] if fund else "Unknown"
+        assert resolved.sinking_fund_id is not None
         fund_data = await http_client.get_sinking_fund(resolved.sinking_fund_id)
-        balance = fund_data.get("current_balance", 0)
+        balance = fund_data["current_balance"]
         embed.description = (
             f"{CHECK} Deposited {amount_str} to {fund_name} \u2014 {cat_name}\n"
             f"   Fund balance: ${balance:.2f}"

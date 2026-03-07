@@ -1,4 +1,5 @@
 """Tests for bot/resolver.py"""
+
 import os
 
 os.environ.setdefault("DISCORD_TOKEN", "test-token")
@@ -12,7 +13,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from bot.resolver import (
-    ResolveResult,
     match_name,
     resolve_bill,
     resolve_deposit,
@@ -175,9 +175,7 @@ class TestResolveExpenseCategory:
 class TestResolveExpenseFund:
     async def test_exact_fund_with_category(self):
         client = _make_client()
-        result = await resolve_expense(
-            ["holiday", "fund", "groceries"], client, TODAY
-        )
+        result = await resolve_expense(["holiday", "fund", "groceries"], client, TODAY)
         assert result.error is None
         assert result.transaction_type == "withdrawal"
         assert result.sinking_fund_id == 10
@@ -185,9 +183,7 @@ class TestResolveExpenseFund:
 
     async def test_multi_word_fund_name(self):
         client = _make_client()
-        result = await resolve_expense(
-            ["short", "term", "savings", "transfer"], client, TODAY
-        )
+        result = await resolve_expense(["short", "term", "savings", "transfer"], client, TODAY)
         assert result.error is None
         assert result.transaction_type == "withdrawal"
         assert result.sinking_fund_id == 11
@@ -210,9 +206,7 @@ class TestResolveExpenseFund:
 
     async def test_fund_matched_category_not_found(self):
         client = _make_client()
-        result = await resolve_expense(
-            ["holiday", "fund", "unknowncat"], client, TODAY
-        )
+        result = await resolve_expense(["holiday", "fund", "unknowncat"], client, TODAY)
         assert result.error == "no_match_category"
         assert "Holiday Fund" in result.error_message
         assert "unknowncat" in result.error_message
@@ -223,9 +217,7 @@ class TestResolveExpenseFund:
         ]
         with patch("bot.resolver.cache.get_categories", return_value=cats_with_ambig):
             client = _make_client()
-            result = await resolve_expense(
-                ["holiday", "fund", "groc"], client, TODAY
-            )
+            result = await resolve_expense(["holiday", "fund", "groc"], client, TODAY)
             assert result.error == "ambiguous"
 
     async def test_no_match_at_all(self):
@@ -242,9 +234,7 @@ class TestResolveExpenseFund:
 class TestResolveDeposit:
     async def test_exact_fund_with_category(self):
         client = _make_client()
-        result = await resolve_deposit(
-            ["holiday", "fund", "transfer"], client, TODAY
-        )
+        result = await resolve_deposit(["holiday", "fund", "transfer"], client, TODAY)
         assert result.error is None
         assert result.transaction_type == "contribution"
         assert result.sinking_fund_id == 10
@@ -252,9 +242,7 @@ class TestResolveDeposit:
 
     async def test_multi_word_fund_with_category(self):
         client = _make_client()
-        result = await resolve_deposit(
-            ["short", "term", "savings", "transfer"], client, TODAY
-        )
+        result = await resolve_deposit(["short", "term", "savings", "transfer"], client, TODAY)
         assert result.error is None
         assert result.transaction_type == "contribution"
         assert result.sinking_fund_id == 11
@@ -273,9 +261,7 @@ class TestResolveDeposit:
 
     async def test_fund_category_not_found(self):
         client = _make_client()
-        result = await resolve_deposit(
-            ["holiday", "fund", "nosuchcat"], client, TODAY
-        )
+        result = await resolve_deposit(["holiday", "fund", "nosuchcat"], client, TODAY)
         assert result.error == "no_match_category"
         assert "Holiday Fund" in result.error_message
 

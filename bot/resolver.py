@@ -3,6 +3,7 @@ from datetime import date
 
 import bot.cache as cache
 from bot.client import GlowWormClient
+from bot.types import Bill, Category, SinkingFund
 
 
 @dataclass
@@ -18,7 +19,7 @@ class ResolveResult:
     ambiguous_names: list[str] = field(default_factory=list)
 
 
-def match_name(tokens: list[str], candidates: list[dict]) -> list[dict]:
+def match_name[T: (Category, SinkingFund, Bill)](tokens: list[str], candidates: list[T]) -> list[T]:
     """Three-tier case-insensitive name matching: exact → starts-with → contains."""
     query = " ".join(tokens).lower()
 
@@ -33,11 +34,11 @@ def match_name(tokens: list[str], candidates: list[dict]) -> list[dict]:
     return [c for c in candidates if query in c["name"].lower()]
 
 
-def _find_in_tokens(
+def _find_in_tokens[T: (Category, SinkingFund, Bill)](
     tokens: list[str],
-    candidates: list[dict],
+    candidates: list[T],
     longest_first: bool = True,
-) -> tuple[list[dict], int]:
+) -> tuple[list[T], int]:
     """
     Find the best-matching prefix of tokens against candidates.
 
@@ -51,7 +52,7 @@ def _find_in_tokens(
     """
     # Collect (tier, length, matches) for all single-result prefix lengths
     # tier: 3=exact, 2=starts-with, 1=contains
-    good: list[tuple[int, int, list[dict]]] = []
+    good: list[tuple[int, int, list[T]]] = []
 
     for i in range(1, len(tokens) + 1):
         query = " ".join(tokens[:i]).lower()
@@ -79,7 +80,9 @@ def _find_in_tokens(
     return matches, length
 
 
-def _find_ambiguous(tokens: list[str], candidates: list[dict]) -> list[dict]:
+def _find_ambiguous[T: (Category, SinkingFund, Bill)](
+    tokens: list[str], candidates: list[T]
+) -> list[T]:
     """Return ambiguous matches if any prefix gives multiple results at the highest tier."""
     for i in range(len(tokens), 0, -1):
         query = " ".join(tokens[:i]).lower()
@@ -110,7 +113,7 @@ async def resolve_expense(
         cat = cat_matches[0]
         description = " ".join(raw_tokens[name_len:]) or None
 
-        if cat.get("is_budget_category"):
+        if cat["is_budget_category"]:
             budgets = await client.get_budgets(cat["id"], today.month, today.year)
             if not budgets:
                 return ResolveResult(
@@ -151,9 +154,7 @@ async def resolve_expense(
     fund_matches, fund_len = _find_in_tokens(raw_tokens, sinking_funds, longest_first=True)
 
     if len(fund_matches) == 1:
-        return _build_fund_result(
-            fund_matches[0], fund_len, raw_tokens, categories, "withdrawal"
-        )
+        return _build_fund_result(fund_matches[0], fund_len, raw_tokens, categories, "withdrawal")
 
     if len(fund_matches) > 1:
         query = " ".join(raw_tokens[:fund_len])
@@ -167,7 +168,9 @@ async def resolve_expense(
         )
 
     # Check for any ambiguous candidates
-    ambig = _find_ambiguous(raw_tokens, categories) or _find_ambiguous(raw_tokens, sinking_funds)
+    ambig: list[Category] | list[SinkingFund] = _find_ambiguous(
+        raw_tokens, categories
+    ) or _find_ambiguous(raw_tokens, sinking_funds)
     if ambig:
         query = " ".join(raw_tokens)
         return ResolveResult(
@@ -196,9 +199,7 @@ async def resolve_deposit(
     fund_matches, fund_len = _find_in_tokens(raw_tokens, sinking_funds, longest_first=True)
 
     if len(fund_matches) == 1:
-        return _build_fund_result(
-            fund_matches[0], fund_len, raw_tokens, categories, "contribution"
-        )
+        return _build_fund_result(fund_matches[0], fund_len, raw_tokens, categories, "contribution")
 
     if len(fund_matches) > 1:
         query = " ".join(raw_tokens[:fund_len])
@@ -240,7 +241,7 @@ def resolve_bill(raw_tokens: list[str]) -> ResolveResult:
         return ResolveResult(
             transaction_type="regular",
             bill_id=bill["id"],
-            category_id=bill.get("category_id"),
+            category_id=bill["category_id"],
         )
 
     if len(matches) > 1:
@@ -267,10 +268,10 @@ def resolve_bill(raw_tokens: list[str]) -> ResolveResult:
 
 
 def _build_fund_result(
-    fund: dict,
+    fund: SinkingFund,
     fund_len: int,
     raw_tokens: list[str],
-    categories: list[dict],
+    categories: list[Category],
     tx_type: str,
 ) -> ResolveResult:
     remaining = raw_tokens[fund_len:]

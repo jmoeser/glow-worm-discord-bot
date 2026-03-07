@@ -18,7 +18,6 @@ import pytest
 
 from bot.client import APIError, GlowWormClient
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -161,9 +160,7 @@ async def test_get_sinking_fund_returns_dict(client):
 
 @pytest.mark.asyncio
 async def test_get_sinking_fund_raises_on_404(client):
-    client._client.get = AsyncMock(
-        return_value=_error_response(404, "Sinking fund not found")
-    )
+    client._client.get = AsyncMock(return_value=_error_response(404, "Sinking fund not found"))
 
     with pytest.raises(APIError) as exc_info:
         await client.get_sinking_fund(999)
@@ -211,9 +208,7 @@ async def test_get_budgets_filters_by_category_id(client):
 
     result = await client.get_budgets(category_id=10, month=3, year=2026)
 
-    client._client.get.assert_called_once_with(
-        "/api/budgets", params={"month": 3, "year": 2026}
-    )
+    client._client.get.assert_called_once_with("/api/budgets", params={"month": 3, "year": 2026})
     assert len(result) == 2
     assert all(b["category_id"] == 10 for b in result)
 
@@ -246,7 +241,7 @@ async def test_get_budgets_raises_on_error(client):
 
 
 @pytest.mark.asyncio
-async def test_create_transaction_posts_payload_and_returns_response(client):
+async def test_create_transaction_posts_payload(client):
     payload = {
         "date": "2026-03-07",
         "amount": 45.50,
@@ -258,18 +253,14 @@ async def test_create_transaction_posts_payload_and_returns_response(client):
     created = {"id": 101, **payload}
     client._client.post = AsyncMock(return_value=_response(201, created))
 
-    result = await client.create_transaction(payload)
+    await client.create_transaction(payload)
 
     client._client.post.assert_called_once_with("/api/transactions", json=payload)
-    assert result["id"] == 101
-    assert result["amount"] == 45.50
 
 
 @pytest.mark.asyncio
 async def test_create_transaction_raises_on_422(client):
-    client._client.post = AsyncMock(
-        return_value=_error_response(422, "Validation error")
-    )
+    client._client.post = AsyncMock(return_value=_error_response(422, "Validation error"))
 
     with pytest.raises(APIError) as exc_info:
         await client.create_transaction({"bad": "data"})

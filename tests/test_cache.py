@@ -14,7 +14,6 @@ import pytest
 import bot.cache as cache
 from bot.client import GlowWormClient
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -51,8 +50,10 @@ def _mock_client() -> GlowWormClient:
 
 @pytest.mark.asyncio
 async def test_initialise_populates_categories():
-    with patch.object(cache.hourly_refresh, "is_running", return_value=False), \
-         patch.object(cache.hourly_refresh, "start"):
+    with (
+        patch.object(cache.hourly_refresh, "is_running", return_value=False),
+        patch.object(cache.hourly_refresh, "start"),
+    ):
         await cache.initialise(_mock_client())
 
     assert cache.get_categories() == CATEGORIES
@@ -60,8 +61,10 @@ async def test_initialise_populates_categories():
 
 @pytest.mark.asyncio
 async def test_initialise_populates_sinking_funds():
-    with patch.object(cache.hourly_refresh, "is_running", return_value=False), \
-         patch.object(cache.hourly_refresh, "start"):
+    with (
+        patch.object(cache.hourly_refresh, "is_running", return_value=False),
+        patch.object(cache.hourly_refresh, "start"),
+    ):
         await cache.initialise(_mock_client())
 
     assert cache.get_sinking_funds() == SINKING_FUNDS
@@ -69,8 +72,10 @@ async def test_initialise_populates_sinking_funds():
 
 @pytest.mark.asyncio
 async def test_initialise_populates_only_variable_bills():
-    with patch.object(cache.hourly_refresh, "is_running", return_value=False), \
-         patch.object(cache.hourly_refresh, "start"):
+    with (
+        patch.object(cache.hourly_refresh, "is_running", return_value=False),
+        patch.object(cache.hourly_refresh, "start"),
+    ):
         await cache.initialise(_mock_client())
 
     bills = cache.get_bills()
@@ -81,8 +86,10 @@ async def test_initialise_populates_only_variable_bills():
 
 @pytest.mark.asyncio
 async def test_initialise_starts_hourly_task_when_not_running():
-    with patch.object(cache.hourly_refresh, "is_running", return_value=False) as mock_running, \
-         patch.object(cache.hourly_refresh, "start") as mock_start:
+    with (
+        patch.object(cache.hourly_refresh, "is_running", return_value=False) as _,
+        patch.object(cache.hourly_refresh, "start") as mock_start,
+    ):
         await cache.initialise(_mock_client())
 
     mock_start.assert_called_once()
@@ -90,8 +97,10 @@ async def test_initialise_starts_hourly_task_when_not_running():
 
 @pytest.mark.asyncio
 async def test_initialise_does_not_restart_task_when_already_running():
-    with patch.object(cache.hourly_refresh, "is_running", return_value=True), \
-         patch.object(cache.hourly_refresh, "start") as mock_start:
+    with (
+        patch.object(cache.hourly_refresh, "is_running", return_value=True),
+        patch.object(cache.hourly_refresh, "start") as mock_start,
+    ):
         await cache.initialise(_mock_client())
 
     mock_start.assert_not_called()
@@ -105,8 +114,10 @@ async def test_initialise_does_not_restart_task_when_already_running():
 @pytest.mark.asyncio
 async def test_hourly_refresh_updates_data():
     # Initialise with first client
-    with patch.object(cache.hourly_refresh, "is_running", return_value=False), \
-         patch.object(cache.hourly_refresh, "start"):
+    with (
+        patch.object(cache.hourly_refresh, "is_running", return_value=False),
+        patch.object(cache.hourly_refresh, "start"),
+    ):
         await cache.initialise(_mock_client())
 
     # New data for second refresh
@@ -134,8 +145,10 @@ async def test_hourly_refresh_updates_data():
 async def test_refresh_logs_counts(caplog):
     import logging
 
-    with patch.object(cache.hourly_refresh, "is_running", return_value=False), \
-         patch.object(cache.hourly_refresh, "start"):
+    with (
+        patch.object(cache.hourly_refresh, "is_running", return_value=False),
+        patch.object(cache.hourly_refresh, "start"),
+    ):
         with caplog.at_level(logging.INFO, logger="bot.cache"):
             await cache.initialise(_mock_client())
 
