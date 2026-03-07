@@ -74,9 +74,9 @@ Tasks are ordered by dependency. Complete each before moving to the next.
 
 ## 6. Resolver (`bot/resolver.py`)
 
-- [ ] Implement `match_name(tokens: list[str], candidates: list[dict]) -> list[dict]` using
+- [x] Implement `match_name(tokens: list[str], candidates: list[dict]) -> list[dict]` using
       the three-tier strategy: exact → starts-with → contains (case-insensitive)
-- [ ] Implement `resolve_expense(raw_tokens: list[str]) -> ResolveResult`:
+- [x] Implement `resolve_expense(raw_tokens: list[str]) -> ResolveResult`:
   - Try matching all tokens against categories first
   - If a category matches:
     - If `is_budget_category = true`: fetch the budget for current month/year, attach `budget_id`
@@ -87,13 +87,13 @@ Tasks are ordered by dependency. Complete each before moving to the next.
     - Remaining tokens after the fund name must match a category (required)
     - Return the fund + category together
   - Return a `ResolveResult` with matched entity type, ids, description, and any ambiguity info
-- [ ] Implement `resolve_deposit(raw_tokens: list[str]) -> ResolveResult`:
+- [x] Implement `resolve_deposit(raw_tokens: list[str]) -> ResolveResult`:
   - Match against sinking funds first (greedy), then remaining tokens against a category
   - Same structure as expense sinking fund path
-- [ ] Implement `resolve_bill(raw_tokens: list[str]) -> ResolveResult`:
+- [x] Implement `resolve_bill(raw_tokens: list[str]) -> ResolveResult`:
   - Match against variable recurring bills only (`bill_type = "variable"`)
   - Return the bill's own `category_id` for use in the transaction
-- [ ] Write `tests/test_resolver.py` covering:
+- [x] Write `tests/test_resolver.py` covering:
   - Exact, partial, and ambiguous category name matches
   - Exact, partial, and ambiguous sinking fund name matches
   - Sinking fund + category split (multi-word fund names)
