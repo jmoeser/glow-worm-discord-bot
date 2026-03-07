@@ -1,0 +1,73 @@
+# Claude Context — glow-worm-discord-bot
+
+## What this is
+
+A Python Discord bot that monitors a designated channel and parses natural-language messages
+to create transactions in the glow-worm budget FastAPI application.
+
+## Key documents
+
+- `SPEC.md` — full product specification (parsing rules, API contract, flows, error handling)
+- `TASKS.md` — ordered build tasks; work top-to-bottom
+
+## Related project
+
+The glow-worm API lives at `/Users/jordan/git/glow-worm`. Refer to it for:
+- Models: `app/models.py`
+- Schemas / request-response shapes: `app/schemas.py`
+- Transaction API: `app/routes/transactions.py`
+- Auth: API key via `Authorization: Bearer <key>` header (`app/middleware.py`)
+
+## Stack
+
+- Python 3.14+
+- `discord.py` — bot framework
+- `httpx` — async HTTP client for glow-worm API calls
+- `python-dotenv` — local env var loading
+- Runs in a Podman container; config entirely via environment variables
+
+## Project structure (target)
+
+```
+bot/
+  main.py       # discord.Client setup, on_ready, on_message
+  config.py     # env var loading/validation
+  client.py     # async httpx wrapper for glow-worm API
+  cache.py      # hourly refresh of categories, sinking funds, bills
+  parser.py     # regex patterns + ParseResult + date resolution
+  resolver.py   # name matching, budget/fund/bill resolution
+  handler.py    # orchestrates parse → resolve → confirm/commit
+tests/
+  test_parser.py
+  test_resolver.py
+```
+
+## Important behaviour rules
+
+- Bot only responds in the channel set by `DISCORD_CHANNEL_ID`
+- Messages that don't match any pattern are **silently ignored**
+- `CONFIRM_TRANSACTIONS=true` → show confirmation embed before committing (Phase 1)
+- `CONFIRM_TRANSACTIONS=false` → auto-commit and show remaining balance (Phase 2)
+- Cache refreshes hourly via `discord.ext.tasks`
+
+## glow-worm transaction logic
+
+- Category with `is_budget_category=true` → `transaction_type: "budget_expense"`, requires a
+  budget to exist for the current month/year, attach `budget_id`
+- Category with `is_budget_category=false` → `transaction_type: "regular"`, no budget lookup
+- Sinking fund withdrawal → `transaction_type: "withdrawal"`, requires a category specified
+  after the fund name in the message
+- Sinking fund contribution → `transaction_type: "contribution"`, same category requirement
+- Variable bill payment → `transaction_type: "regular"`, uses the bill's own `category_id`
+
+## Testing
+
+Unit tests must be written for all implementation work. Every new module or non-trivial
+function should have a corresponding test file in `tests/`. Tests use `pytest` and
+`pytest-asyncio` (with `asyncio_mode = "auto"`). Do not consider a task complete until
+tests are written and passing.
+
+## Timezone
+
+All "today/yesterday" date resolution uses the timezone set by the `TIMEZONE` env var
+(e.g. `Australia/Brisbane`). Defaults to `UTC` if not set.

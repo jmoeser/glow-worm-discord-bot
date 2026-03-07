@@ -28,15 +28,15 @@ Tasks are ordered by dependency. Complete each before moving to the next.
 
 ## 3. API client (`bot/client.py`)
 
-- [ ] Create an async `httpx.AsyncClient` configured with `GLOWWORM_API_URL` as base URL
+- [x] Create an async `httpx.AsyncClient` configured with `GLOWWORM_API_URL` as base URL
       and `Authorization: Bearer <GLOWWORM_API_KEY>` header on every request
-- [ ] Implement `get_categories()` → `GET /api/categories`
-- [ ] Implement `get_sinking_funds()` → `GET /api/sinking-funds`
-- [ ] Implement `get_bills()` → `GET /api/bills`
-- [ ] Implement `get_budgets(category_id, month, year)` → `GET /api/budgets` filtered by params
-- [ ] Implement `create_transaction(payload: dict)` → `POST /api/transactions`
-- [ ] Implement `get_sinking_fund(fund_id)` → `GET /api/sinking-funds/{id}` (for balance readback)
-- [ ] All methods should raise a typed exception on non-2xx responses, carrying the status code
+- [x] Implement `get_categories()` → `GET /api/categories`
+- [x] Implement `get_sinking_funds()` → `GET /api/sinking-funds`
+- [x] Implement `get_bills()` → `GET /api/bills`
+- [x] Implement `get_budgets(category_id, month, year)` → `GET /api/budgets` filtered by params
+- [x] Implement `create_transaction(payload: dict)` → `POST /api/transactions`
+- [x] Implement `get_sinking_fund(fund_id)` → `GET /api/sinking-funds/{id}` (for balance readback)
+- [x] All methods should raise a typed exception on non-2xx responses, carrying the status code
 
 ---
 
