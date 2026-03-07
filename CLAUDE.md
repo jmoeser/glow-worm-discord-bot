@@ -50,6 +50,10 @@ tests/
 - `CONFIRM_TRANSACTIONS=true` → show confirmation embed before committing (Phase 1)
 - `CONFIRM_TRANSACTIONS=false` → auto-commit and show remaining balance (Phase 2)
 - Cache refreshes hourly via `discord.ext.tasks`
+- `ALLOWED_USER_IDS` — comma-separated Discord user IDs; if set, only those users can create
+  transactions; messages from other users are silently ignored
+- `MAX_TRANSACTION_AMOUNT` — if set, any parsed amount exceeding this value is rejected with
+  an error message before resolution or commit
 
 ## glow-worm transaction logic
 
