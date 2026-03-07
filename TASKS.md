@@ -42,27 +42,27 @@ Tasks are ordered by dependency. Complete each before moving to the next.
 
 ## 4. Cache (`bot/cache.py`)
 
-- [ ] On startup, fetch and store categories, sinking funds, and active variable bills
+- [x] On startup, fetch and store categories, sinking funds, and active variable bills
       using the API client
-- [ ] Expose the cached data as simple module-level accessors
-- [ ] Schedule an hourly background task (using `discord.ext.tasks`) to refresh all three
-- [ ] Log a message on each refresh so it's visible in container logs
+- [x] Expose the cached data as simple module-level accessors
+- [x] Schedule an hourly background task (using `discord.ext.tasks`) to refresh all three
+- [x] Log a message on each refresh so it's visible in container logs
 
 ---
 
 ## 5. Parser (`bot/parser.py`)
 
-- [ ] Define the three compiled regex patterns: `EXPENSE_RE`, `DEPOSIT_RE`, `BILL_RE`
+- [x] Define the three compiled regex patterns: `EXPENSE_RE`, `DEPOSIT_RE`, `BILL_RE`
       (see SPEC for patterns)
-- [ ] Implement `parse(message: str) -> ParseResult | None` that returns `None` for
+- [x] Implement `parse(message: str) -> ParseResult | None` that returns `None` for
       non-matching messages and a structured result otherwise
-- [ ] `ParseResult` should carry: `intent` (expense/deposit/bill), `amount`, `raw_name_tokens`,
+- [x] `ParseResult` should carry: `intent` (expense/deposit/bill), `amount`, `raw_name_tokens`,
       `raw_date_hint`, `raw_description`
-- [ ] Implement date resolution using the configured `TIMEZONE`:
+- [x] Implement date resolution using the configured `TIMEZONE`:
   - `"today"` or absent → today in configured timezone
   - `"yesterday"` → today - 1 day in configured timezone
   - `"last <weekday>"` → most recent past occurrence of that weekday
-- [ ] Write `tests/test_parser.py` covering:
+- [x] Write `tests/test_parser.py` covering:
   - All trigger word variants
   - `$` prefix present and absent
   - Decimal amounts
