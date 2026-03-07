@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from bot.client import APIError
-from bot.handler import _build_payload, _error_text, handle
+from bot.handler import _build_payload, _build_success_embed, _error_text, handle
 from bot.parser import ParseResult
 from bot.resolver import ResolveResult
 
@@ -558,3 +558,222 @@ async def test_handle_network_error_sends_message():
     msg.channel.send.assert_called_once()
     sent = msg.channel.send.call_args[0][0]
     assert "reach glow-worm" in sent
+
+
+# ---------------------------------------------------------------------------
+# handle — amount limit (fix 5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_amount_exceeds_limit_sends_error():
+    msg = _make_message("spent $999 groceries")
+    http_client = _make_http_client()
+    bot = _make_bot()
+
+    with patch("bot.handler.MAX_TRANSACTION_AMOUNT", 500.0):
+        await handle(msg, http_client, bot)
+
+    msg.channel.send.assert_called_once()
+    sent = msg.channel.send.call_args[0][0]
+    assert "999.00" in sent
+    assert "500.00" in sent
+    http_client.create_transaction.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_handle_amount_at_limit_is_accepted():
+    msg = _make_message("spent $500 groceries")
+    http_client = _make_http_client()
+    bot = _make_bot()
+
+    resolved = ResolveResult(transaction_type="budget_expense", category_id=1, budget_id=10)
+
+    with (
+        patch("bot.handler.MAX_TRANSACTION_AMOUNT", 500.0),
+        patch("bot.handler.resolve_expense", return_value=resolved),
+        patch("bot.handler.cache.get_categories", return_value=CATEGORIES),
+        patch("bot.handler.cache.get_sinking_funds", return_value=SINKING_FUNDS),
+        patch("bot.handler.cache.get_bills", return_value=BILLS),
+        patch("bot.handler.config") as mock_cfg,
+    ):
+        mock_cfg.CONFIRM_TRANSACTIONS = False
+        await handle(msg, http_client, bot)
+
+    http_client.create_transaction.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# _build_payload — description truncation (fix 7)
+# ---------------------------------------------------------------------------
+
+
+def test_build_payload_description_truncated():
+    result = ParseResult(
+        intent="expense",
+        amount=20.0,
+        raw_name_tokens=["groceries"],
+        raw_date_hint=None,
+        raw_description=None,
+    )
+    long_desc = "x" * 600
+    resolved = ResolveResult(
+        transaction_type="regular",
+        category_id=2,
+        description=long_desc,
+    )
+    today = date(2026, 3, 7)
+    payload = _build_payload(result, resolved, today)
+
+    assert len(payload["description"]) == 500  # type: ignore[arg-type]
+    assert payload["description"] == long_desc[:500]
+
+
+def test_build_payload_description_within_limit_unchanged():
+    result = ParseResult(
+        intent="expense",
+        amount=20.0,
+        raw_name_tokens=["groceries"],
+        raw_date_hint=None,
+        raw_description=None,
+    )
+    resolved = ResolveResult(
+        transaction_type="regular",
+        category_id=2,
+        description="chemist",
+    )
+    today = date(2026, 3, 7)
+    payload = _build_payload(result, resolved, today)
+
+    assert payload["description"] == "chemist"
+
+
+# ---------------------------------------------------------------------------
+# _confirm_flow — duplicate user guard (fix 10)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_confirm_flow_blocks_duplicate_user():
+    """A second matching message from the same user while a confirmation is pending is rejected."""
+    import bot.handler as handler_module
+
+    msg = _make_message("spent $20 groceries", author_id=7)
+    http_client = _make_http_client()
+    bot = _make_bot()
+
+    resolved = ResolveResult(transaction_type="budget_expense", category_id=1, budget_id=10)
+
+    handler_module._pending_confirmations.add(7)
+    try:
+        with (
+            patch("bot.handler.resolve_expense", return_value=resolved),
+            patch("bot.handler.config") as mock_cfg,
+        ):
+            mock_cfg.CONFIRM_TRANSACTIONS = True
+            await handle(msg, http_client, bot)
+
+        msg.channel.send.assert_called_once()
+        sent = msg.channel.send.call_args[0][0]
+        assert "confirmation" in sent.lower()
+        http_client.create_transaction.assert_not_called()
+    finally:
+        handler_module._pending_confirmations.discard(7)
+
+
+# ---------------------------------------------------------------------------
+# _build_success_embed — assert-to-guard fixes (fix 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_build_success_embed_missing_category_id_for_budget_expense():
+    """Should return a fallback embed rather than crashing when category_id is None."""
+    result = ParseResult(
+        intent="expense", amount=20.0, raw_name_tokens=[], raw_date_hint=None, raw_description=None
+    )
+    resolved = ResolveResult(
+        transaction_type="budget_expense",
+        category_id=None,
+        budget_id=10,
+    )
+    payload = {
+        "date": "2026-03-07",
+        "amount": 20.0,
+        "description": None,
+        "category_id": None,
+        "type": "expense",
+        "transaction_type": "budget_expense",
+    }
+    http_client = _make_http_client()
+
+    with patch("bot.handler.cache.get_categories", return_value=CATEGORIES):
+        embed = await _build_success_embed(http_client, result, resolved, payload)
+
+    assert embed.description is not None
+    assert "\u2705" in embed.description
+    http_client.get_budgets.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_build_success_embed_missing_sinking_fund_id_for_withdrawal():
+    """Should return a fallback embed rather than crashing when sinking_fund_id is None."""
+    result = ParseResult(
+        intent="expense", amount=50.0, raw_name_tokens=[], raw_date_hint=None, raw_description=None
+    )
+    resolved = ResolveResult(
+        transaction_type="withdrawal",
+        category_id=1,
+        sinking_fund_id=None,
+    )
+    payload = {
+        "date": "2026-03-07",
+        "amount": 50.0,
+        "description": None,
+        "category_id": 1,
+        "type": "expense",
+        "transaction_type": "withdrawal",
+    }
+    http_client = _make_http_client()
+
+    with (
+        patch("bot.handler.cache.get_categories", return_value=CATEGORIES),
+        patch("bot.handler.cache.get_sinking_funds", return_value=SINKING_FUNDS),
+    ):
+        embed = await _build_success_embed(http_client, result, resolved, payload)
+
+    assert embed.description is not None
+    assert "\u2705" in embed.description
+    http_client.get_sinking_fund.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_build_success_embed_missing_sinking_fund_id_for_contribution():
+    """Should return a fallback embed rather than crashing when sinking_fund_id is None."""
+    result = ParseResult(
+        intent="deposit", amount=30.0, raw_name_tokens=[], raw_date_hint=None, raw_description=None
+    )
+    resolved = ResolveResult(
+        transaction_type="contribution",
+        category_id=3,
+        sinking_fund_id=None,
+    )
+    payload = {
+        "date": "2026-03-07",
+        "amount": 30.0,
+        "description": None,
+        "category_id": 3,
+        "type": "income",
+        "transaction_type": "contribution",
+    }
+    http_client = _make_http_client()
+
+    with (
+        patch("bot.handler.cache.get_categories", return_value=CATEGORIES),
+        patch("bot.handler.cache.get_sinking_funds", return_value=SINKING_FUNDS),
+    ):
+        embed = await _build_success_embed(http_client, result, resolved, payload)
+
+    assert embed.description is not None
+    assert "\u2705" in embed.description
+    http_client.get_sinking_fund.assert_not_called()

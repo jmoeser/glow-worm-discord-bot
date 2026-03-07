@@ -7,6 +7,7 @@ import httpx
 import bot.cache as cache
 from bot import config
 from bot.client import APIError, GlowWormClient
+from bot.config import MAX_TRANSACTION_AMOUNT
 from bot.parser import ParseResult, parse, resolve_date
 from bot.resolver import ResolveResult, resolve_bill, resolve_deposit, resolve_expense
 from bot.types import TransactionPayload
@@ -15,6 +16,12 @@ logger = logging.getLogger(__name__)
 
 CHECK = "\u2705"
 CROSS = "\u274c"
+
+# Matches Transaction.description column length in glow-worm (models.py String(500)).
+_MAX_DESCRIPTION_LEN = 500
+
+# Tracks user IDs with an active confirmation flow to prevent concurrent duplicates.
+_pending_confirmations: set[int] = set()
 
 
 async def handle(
@@ -25,6 +32,13 @@ async def handle(
     """Main entry point: parse message, resolve names, confirm or auto-commit."""
     result = parse(message.content)
     if result is None:
+        return
+
+    if result.amount > MAX_TRANSACTION_AMOUNT:
+        await message.channel.send(
+            f"${result.amount:.2f} exceeds the maximum allowed amount of "
+            f"${MAX_TRANSACTION_AMOUNT:.2f}. Update MAX_TRANSACTION_AMOUNT to raise the limit."
+        )
         return
 
     today = resolve_date(result.raw_date_hint)
@@ -59,10 +73,14 @@ def _build_payload(result: ParseResult, resolved: ResolveResult, today: date) ->
     else:
         tx_type = "expense"
 
+    description = (
+        resolved.description[:_MAX_DESCRIPTION_LEN] if resolved.description else None
+    )
+
     payload: TransactionPayload = {
         "date": today.isoformat(),
         "amount": result.amount,
-        "description": resolved.description,
+        "description": description,
         "category_id": resolved.category_id,
         "type": tx_type,
         "transaction_type": resolved.transaction_type,
@@ -105,29 +123,41 @@ async def _confirm_flow(
     result: ParseResult,
     resolved: ResolveResult,
 ) -> None:
-    embed = _build_preview_embed(result, resolved, payload)
-    preview_msg = await message.channel.send(embed=embed)
-    await preview_msg.add_reaction(CHECK)
-    await preview_msg.add_reaction(CROSS)
-
-    def check(reaction: discord.Reaction, user: discord.abc.User) -> bool:
-        return (
-            user == message.author
-            and reaction.message.id == preview_msg.id
-            and str(reaction.emoji) in (CHECK, CROSS)
+    user_id = message.author.id
+    if user_id in _pending_confirmations:
+        await message.channel.send(
+            "You already have a transaction waiting for confirmation. "
+            "Please react to the existing preview first."
         )
+        return
 
+    _pending_confirmations.add(user_id)
     try:
-        reaction, _ = await bot.wait_for("reaction_add", check=check, timeout=60.0)
-    except TimeoutError:
-        await message.channel.send("Cancelled.")
-        return
+        embed = _build_preview_embed(result, resolved, payload)
+        preview_msg = await message.channel.send(embed=embed)
+        await preview_msg.add_reaction(CHECK)
+        await preview_msg.add_reaction(CROSS)
 
-    if str(reaction.emoji) == CROSS:
-        await message.channel.send("Cancelled.")
-        return
+        def check(reaction: discord.Reaction, user: discord.abc.User) -> bool:
+            return (
+                user == message.author
+                and reaction.message.id == preview_msg.id
+                and str(reaction.emoji) in (CHECK, CROSS)
+            )
 
-    await _commit(message, http_client, payload, result, resolved)
+        try:
+            reaction, _ = await bot.wait_for("reaction_add", check=check, timeout=60.0)
+        except TimeoutError:
+            await message.channel.send("Cancelled.")
+            return
+
+        if str(reaction.emoji) == CROSS:
+            await message.channel.send("Cancelled.")
+            return
+
+        await _commit(message, http_client, payload, result, resolved)
+    finally:
+        _pending_confirmations.discard(user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +273,10 @@ async def _build_success_embed(
 
     if tx_type == "budget_expense":
         d = datetime.fromisoformat(date_str).date()
-        assert resolved.category_id is not None
+        if resolved.category_id is None:
+            logger.error("budget_expense transaction missing category_id in success embed")
+            embed.description = f"{CHECK} Added {amount_str}"
+            return embed
         budgets = await http_client.get_budgets(resolved.category_id, d.month, d.year)
         if budgets:
             budget = budgets[0]
@@ -260,7 +293,10 @@ async def _build_success_embed(
         funds = cache.get_sinking_funds()
         fund = next((f for f in funds if f["id"] == resolved.sinking_fund_id), None)
         fund_name = fund["name"] if fund else "Unknown"
-        assert resolved.sinking_fund_id is not None
+        if resolved.sinking_fund_id is None:
+            logger.error("withdrawal transaction missing sinking_fund_id in success embed")
+            embed.description = f"{CHECK} Withdrew {amount_str} \u2014 {cat_name}"
+            return embed
         fund_data = await http_client.get_sinking_fund(resolved.sinking_fund_id)
         balance = fund_data["current_balance"]
         embed.description = (
@@ -272,7 +308,10 @@ async def _build_success_embed(
         funds = cache.get_sinking_funds()
         fund = next((f for f in funds if f["id"] == resolved.sinking_fund_id), None)
         fund_name = fund["name"] if fund else "Unknown"
-        assert resolved.sinking_fund_id is not None
+        if resolved.sinking_fund_id is None:
+            logger.error("contribution transaction missing sinking_fund_id in success embed")
+            embed.description = f"{CHECK} Deposited {amount_str} \u2014 {cat_name}"
+            return embed
         fund_data = await http_client.get_sinking_fund(resolved.sinking_fund_id)
         balance = fund_data["current_balance"]
         embed.description = (
