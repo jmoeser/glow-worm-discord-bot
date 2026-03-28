@@ -73,9 +73,7 @@ def _build_payload(result: ParseResult, resolved: ResolveResult, today: date) ->
     else:
         tx_type = "expense"
 
-    description = (
-        resolved.description[:_MAX_DESCRIPTION_LEN] if resolved.description else None
-    )
+    description = resolved.description[:_MAX_DESCRIPTION_LEN] if resolved.description else None
 
     payload: TransactionPayload = {
         "date": today.isoformat(),

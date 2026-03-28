@@ -19,9 +19,7 @@ def _parse_bool(name: str, value: str) -> bool:
         return True
     if normalized in ("false", "0", "no"):
         return False
-    raise RuntimeError(
-        f"Invalid value for {name}: {value!r}. Expected true/false/1/0/yes/no."
-    )
+    raise RuntimeError(f"Invalid value for {name}: {value!r}. Expected true/false/1/0/yes/no.")
 
 
 DISCORD_TOKEN: str = _require("DISCORD_TOKEN")
