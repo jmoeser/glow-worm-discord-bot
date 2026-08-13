@@ -88,6 +88,17 @@ uv run pytest tests/test_cache.py -v
 Dependencies are managed via `uv`. Never use `pip install` directly — add packages to
 `pyproject.toml` and run `uv sync`.
 
+## Dependency updates
+
+Hosted [Mend Renovate](https://github.com/apps/renovate); config is `renovate.json5`.
+Dependabot version updates are not used; keep the GitHub dependency graph and Dependabot alerts.
+
+- One non-major PR on the 1st and 15th 00:00–06:59 (`Australia/Brisbane`). Majors are separate PRs in the same window. Nothing automerges.
+- uv toolchain (`aqua.yaml` `astral-sh/uv`, GHCR `ghcr.io/astral-sh/uv` image, CI `setup-uv` `version:`) is always one isolated `uv` PR (all update types, including 0.x minors and 1.x).
+- Python `3.14` → `3.15` is a **minor**, isolated as `python runtime` and Dashboard-gated. Do not merge until `requires-python` and `[tool.mypy] python_version` move in the same commit.
+- `minimumReleaseAge: "7 days"` where the registry publishes timestamps. The GitHub release of `astral-sh/uv` is the clock for the uv group (GHCR is timestamp-optional on that docker member only).
+- Pending updates live on the Dependency Dashboard issue. Dashboard “Run now” starts a job; it does **not** skip the schedule for new PRs.
+
 ## Timezone
 
 All "today/yesterday" date resolution uses the timezone set by the `TIMEZONE` env var
