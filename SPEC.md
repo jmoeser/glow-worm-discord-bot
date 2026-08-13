@@ -248,15 +248,13 @@ DATE_PAT = r"(?:\s+(yesterday|today|last\s+\w+))?$"
 
 # Expense / withdrawal
 EXPENSE_RE = re.compile(
-    r"^(spent|spend|buy|bought|purchase|purchased)\s+"
-    + AMOUNT_PAT + r"\s+(.+?)" + DATE_PAT,
+    r"^(spent|spend|buy|bought|purchase|purchased)\s+" + AMOUNT_PAT + r"\s+(.+?)" + DATE_PAT,
     re.IGNORECASE,
 )
 
 # Contribution
 DEPOSIT_RE = re.compile(
-    r"^(deposit|deposited|save|saved)\s+"
-    + AMOUNT_PAT + r"\s+(.+?)" + DATE_PAT,
+    r"^(deposit|deposited|save|saved)\s+" + AMOUNT_PAT + r"\s+(.+?)" + DATE_PAT,
     re.IGNORECASE,
 )
 
