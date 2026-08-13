@@ -87,6 +87,8 @@ podman run --env-file .env --network glowworm-net glow-worm-discord-bot
 
 ## Development
 
+Dependency updates are batched by Renovate; CI on the PR is the gate.
+
 ```bash
 # Install dev dependencies
 uv sync
@@ -116,6 +118,11 @@ bot/
 tests/
   test_parser.py
   test_resolver.py
+aqua.yaml          # aqua pins (uv CLI)
+pyproject.toml
+uv.lock
+renovate.json5     # Renovate dependency-update config
+Containerfile
 ```
 
 ## Related
