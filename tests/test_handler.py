@@ -15,8 +15,14 @@ import httpx
 import pytest
 
 from bot.client import APIError
-from bot.handler import _build_payload, _build_success_embed, _error_text, handle
-from bot.parser import ParseResult
+from bot.handler import (
+    _amount_str,
+    _build_payload,
+    _build_success_embed,
+    _error_text,
+    handle,
+)
+from bot.parser import ParseResult, resolve_date
 from bot.resolver import ResolveResult
 
 # ---------------------------------------------------------------------------
@@ -45,6 +51,9 @@ def _make_http_client() -> AsyncMock:
         return_value=[{"id": 10, "allocated_amount": 200.0, "spent_amount": 55.0}]
     )
     client.get_sinking_fund = AsyncMock(return_value={"id": 5, "current_balance": 430.0})
+    client.get_due_payments = AsyncMock(return_value=[])
+    client.confirm_bill = AsyncMock(return_value={"message": "Confirmed."})
+    client.skip_bill = AsyncMock(return_value={"message": "Skipped."})
     return client
 
 
@@ -777,3 +786,480 @@ async def test_build_success_embed_missing_sinking_fund_id_for_contribution():
     assert embed.description is not None
     assert "\u2705" in embed.description
     http_client.get_sinking_fund.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Due payments — paid / skip / due
+# ---------------------------------------------------------------------------
+
+
+def _due(**overrides: object) -> dict:
+    row: dict = {
+        "bill_id": 31,
+        "name": "HelloFresh",
+        "provider": "HelloFresh",
+        "expected_amount": "89.95",
+        "due_date": "2026-10-26",
+        "more_due": 0,
+        "paid_from": "budget",
+        "paid_from_label": "Groceries budget",
+        "budget_month": "October 2026",
+        "problem": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def test_amount_str_quantizes_to_two_places():
+    assert _amount_str(89.95) == "89.95"
+    assert _amount_str("89.95") == "89.95"
+    assert _amount_str("10") == "10.00"
+    assert _amount_str(0) is None
+    assert _amount_str("nope") is None
+
+
+@pytest.mark.asyncio
+async def test_paid_confirms_single_due_payment_and_shows_glowworm_message():
+    msg = _make_message("paid hellofresh $92.40")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    http_client.confirm_bill = AsyncMock(
+        return_value={"message": "Logged $92.40 from Groceries budget (October 2026)."}
+    )
+    bot = _make_bot()
+    bot.wait_for = AsyncMock(side_effect=AssertionError("should not ask for a reaction"))
+
+    with patch("bot.handler.config") as mock_cfg:
+        mock_cfg.CONFIRM_TRANSACTIONS = True
+        await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_called_once_with(31, "92.40", "2026-10-26")
+    http_client.create_transaction.assert_not_called()
+    bot.wait_for.assert_not_called()
+    assert msg.channel.send.call_args[0][0] == (
+        "Logged $92.40 from Groceries budget (October 2026)."
+    )
+
+
+@pytest.mark.asyncio
+async def test_paid_without_amount_uses_expected_amount():
+    msg = _make_message("paid hellofresh")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due(expected_amount=89.95)])
+    http_client.confirm_bill = AsyncMock(
+        return_value={"message": "Logged to October Groceries; $89.95 taken back from Overflow."}
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_called_once_with(31, "89.95", "2026-10-26")
+    http_client.create_transaction.assert_not_called()
+    assert msg.channel.send.call_args[0][0] == (
+        "Logged to October Groceries; $89.95 taken back from Overflow."
+    )
+
+
+@pytest.mark.asyncio
+async def test_paid_exact_name_beats_longer_prefix():
+    msg = _make_message("paid electricity $40")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(
+        return_value=[
+            _due(
+                bill_id=20,
+                name="Electricity",
+                paid_from="bills_fund",
+                paid_from_label="Bills fund",
+            ),
+            _due(bill_id=21, name="Electricity Plus"),
+        ]
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_called_once_with(20, "40.00", "2026-10-26")
+
+
+@pytest.mark.asyncio
+async def test_paid_partial_name_confirms_unique_due_payment():
+    msg = _make_message("paid gas $18.5")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(
+        return_value=[
+            _due(bill_id=4, name="Gas Bill", due_date="2026-10-15", paid_from_label="Bills fund"),
+            _due(bill_id=5, name="Water"),
+        ]
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_called_once_with(4, "18.50", "2026-10-15")
+
+
+@pytest.mark.asyncio
+async def test_paid_several_due_matches_asks_which():
+    msg = _make_message("paid bill $30")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(
+        return_value=[
+            _due(bill_id=4, name="Gas Bill", paid_from_label="Bills fund", due_date="2026-10-15"),
+            _due(bill_id=5, name="Water Bill", paid_from_label="Bills fund", due_date="2026-10-20"),
+        ]
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_not_called()
+    http_client.create_transaction.assert_not_called()
+    sent = msg.channel.send.call_args[0][0]
+    assert sent == (
+        "I found multiple matches for 'bill': "
+        "Gas Bill (Bills fund, due 15 Oct 2026), "
+        "Water Bill (Bills fund, due 20 Oct 2026). Which did you mean?"
+    )
+
+
+@pytest.mark.asyncio
+async def test_paid_with_no_due_match_logs_variable_bill():
+    msg = _make_message("paid electricity $120 yesterday")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    bot = _make_bot()
+
+    with (
+        patch("bot.handler.cache.get_bills", return_value=BILLS),
+        patch("bot.handler.cache.get_categories", return_value=CATEGORIES),
+        patch("bot.handler.config") as mock_cfg,
+    ):
+        mock_cfg.CONFIRM_TRANSACTIONS = False
+        await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_not_called()
+    payload = http_client.create_transaction.call_args[0][0]
+    assert payload["recurring_bill_id"] == 20
+    assert payload["amount"] == 120.0
+    assert payload["transaction_type"] == "regular"
+    assert payload["date"] == resolve_date("yesterday").isoformat()
+
+
+@pytest.mark.asyncio
+async def test_paid_without_amount_and_no_due_match_asks_for_amount():
+    msg = _make_message("paid electricity")
+    http_client = _make_http_client()
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_not_called()
+    http_client.create_transaction.assert_not_called()
+    sent = msg.channel.send.call_args[0][0]
+    assert "couldn't find a due payment matching 'electricity'" in sent
+    assert "paid electricity $120" in sent
+
+
+@pytest.mark.asyncio
+async def test_paid_due_list_error_does_not_log_a_transaction():
+    msg = _make_message("paid electricity $120")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(side_effect=APIError(503, "Glow-worm is down."))
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.create_transaction.assert_not_called()
+    http_client.confirm_bill.assert_not_called()
+    assert msg.channel.send.call_args[0][0] == "Glow-worm is down."
+
+
+@pytest.mark.asyncio
+async def test_paid_due_list_network_error_does_not_log_a_transaction():
+    msg = _make_message("paid electricity $120")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(side_effect=httpx.RequestError("Connection refused"))
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.create_transaction.assert_not_called()
+    assert "reach glow-worm" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_paid_confirm_409_shows_glowworm_detail():
+    msg = _make_message("paid hellofresh $92.40")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    http_client.confirm_bill = AsyncMock(
+        side_effect=APIError(409, "Already done. Showing what's next.")
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.create_transaction.assert_not_called()
+    assert msg.channel.send.call_args[0][0] == "Already done. Showing what's next."
+
+
+@pytest.mark.asyncio
+async def test_paid_confirm_400_shows_blocked_detail():
+    msg = _make_message("paid hellofresh $92.40")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    http_client.confirm_bill = AsyncMock(
+        side_effect=APIError(
+            400,
+            "There's no Groceries budget for October 2026. Set it on the Budgets page first.",
+        )
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    assert msg.channel.send.call_args[0][0] == (
+        "There's no Groceries budget for October 2026. Set it on the Budgets page first."
+    )
+
+
+@pytest.mark.asyncio
+async def test_paid_shows_problem_on_the_due_row_without_confirming():
+    msg = _make_message("paid hellofresh")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(
+        return_value=[
+            _due(
+                problem={
+                    "code": "source_missing",
+                    "detail": "Kids fund was deleted. Change where this is paid from.",
+                }
+            )
+        ]
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_not_called()
+    assert msg.channel.send.call_args[0][0] == (
+        "Kids fund was deleted. Change where this is paid from."
+    )
+
+
+@pytest.mark.asyncio
+async def test_paid_date_hint_does_not_change_the_due_date_sent():
+    msg = _make_message("paid hellofresh $92.40 yesterday")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due(due_date="2026-10-26")])
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_called_once_with(31, "92.40", "2026-10-26")
+    http_client.create_transaction.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_paid_over_limit_does_not_confirm():
+    msg = _make_message("paid hellofresh $999")
+    http_client = _make_http_client()
+    bot = _make_bot()
+
+    with patch("bot.handler.MAX_TRANSACTION_AMOUNT", 500.0):
+        await handle(msg, http_client, bot)
+
+    http_client.get_due_payments.assert_not_called()
+    http_client.confirm_bill.assert_not_called()
+    assert "999.00" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_paid_expected_amount_over_limit_is_rejected():
+    msg = _make_message("paid hellofresh")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due(expected_amount="600.00")])
+    bot = _make_bot()
+
+    with patch("bot.handler.MAX_TRANSACTION_AMOUNT", 500.0):
+        await handle(msg, http_client, bot)
+
+    http_client.confirm_bill.assert_not_called()
+    sent = msg.channel.send.call_args[0][0]
+    assert "600.00" in sent
+    assert "500.00" in sent
+
+
+@pytest.mark.asyncio
+async def test_paid_confirm_network_error():
+    msg = _make_message("paid hellofresh $10")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    http_client.confirm_bill = AsyncMock(side_effect=httpx.RequestError("timed out"))
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    assert "reach glow-worm" in msg.channel.send.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_paid_confirm_without_message_uses_fallback():
+    msg = _make_message("paid hellofresh $10")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    http_client.confirm_bill = AsyncMock(return_value={})
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    assert msg.channel.send.call_args[0][0] == "Confirmed."
+
+
+@pytest.mark.asyncio
+async def test_skip_confirms_one_due_payment():
+    msg = _make_message("skip hellofresh")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    http_client.skip_bill = AsyncMock(
+        return_value={"message": "Skipped 26 Oct 2026. Next due 2 Nov 2026."}
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.skip_bill.assert_called_once_with(31, "2026-10-26")
+    http_client.confirm_bill.assert_not_called()
+    http_client.create_transaction.assert_not_called()
+    assert msg.channel.send.call_args[0][0] == "Skipped 26 Oct 2026. Next due 2 Nov 2026."
+
+
+@pytest.mark.asyncio
+async def test_skip_with_problem_still_calls_skip():
+    msg = _make_message("Skip HelloFresh")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(
+        return_value=[_due(problem={"code": "no_budget", "detail": "There's no Groceries budget."})]
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.skip_bill.assert_called_once_with(31, "2026-10-26")
+
+
+@pytest.mark.asyncio
+async def test_skip_several_matches_asks_which():
+    msg = _make_message("skip bill")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(
+        return_value=[
+            _due(name="Gas Bill", paid_from_label="Bills fund", due_date="2026-10-15"),
+            _due(
+                bill_id=32, name="Water Bill", paid_from_label="Bills fund", due_date="2026-11-01"
+            ),
+        ]
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.skip_bill.assert_not_called()
+    sent = msg.channel.send.call_args[0][0]
+    assert "Which did you mean?" in sent
+    assert "Gas Bill" in sent
+    assert "Water Bill" in sent
+
+
+@pytest.mark.asyncio
+async def test_skip_no_match():
+    msg = _make_message("skip rent")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    http_client.skip_bill.assert_not_called()
+    assert msg.channel.send.call_args[0][0] == "I couldn't find a due payment matching 'rent'."
+
+
+@pytest.mark.asyncio
+async def test_skip_409_shows_detail():
+    msg = _make_message("skip hellofresh")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(return_value=[_due()])
+    http_client.skip_bill = AsyncMock(
+        side_effect=APIError(409, "This bill is paid automatically from the Bills fund.")
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    assert msg.channel.send.call_args[0][0] == (
+        "This bill is paid automatically from the Bills fund."
+    )
+
+
+@pytest.mark.asyncio
+async def test_due_lists_payments_in_api_order():
+    msg = _make_message("what's due")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(
+        return_value=[
+            _due(
+                name="HelloFresh",
+                expected_amount="89.95",
+                due_date="2026-10-26",
+                more_due=1,
+                paid_from_label="Groceries budget",
+            ),
+            _due(
+                bill_id=8,
+                name="Water",
+                expected_amount="210.00",
+                due_date="2026-10-15",
+                paid_from="bills_fund",
+                paid_from_label="Bills fund",
+                budget_month=None,
+                problem={
+                    "code": "no_budget",
+                    "detail": "There's no Groceries budget for October 2026.",
+                },
+            ),
+        ]
+    )
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    assert msg.channel.send.call_args[0][0] == (
+        "Due to confirm:\n"
+        "• HelloFresh — $89.95 — Groceries budget — due 26 Oct 2026 — +1 more\n"
+        "• Water — $210.00 — Bills fund — due 15 Oct 2026\n"
+        "  There's no Groceries budget for October 2026."
+    )
+
+
+@pytest.mark.asyncio
+async def test_due_empty():
+    msg = _make_message("due")
+    http_client = _make_http_client()
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    assert msg.channel.send.call_args[0][0] == "Nothing is due to confirm."
+
+
+@pytest.mark.asyncio
+async def test_due_api_error_shows_detail():
+    msg = _make_message("whats due")
+    http_client = _make_http_client()
+    http_client.get_due_payments = AsyncMock(side_effect=APIError(401, "Unauthorised"))
+    bot = _make_bot()
+
+    await handle(msg, http_client, bot)
+
+    assert msg.channel.send.call_args[0][0] == "Unauthorised"

@@ -301,3 +301,29 @@ class TestResolveBill:
         result = resolve_bill(["gas", "bill"])
         assert result.error is None
         assert result.bill_id == 21
+
+
+# ---------------------------------------------------------------------------
+# match_name — due payments use the same tiers
+# ---------------------------------------------------------------------------
+
+
+class TestMatchDuePayments:
+    def test_exact_beats_longer_prefix(self):
+        due = [{"name": "Electricity"}, {"name": "Electricity Plus"}]
+        result = match_name(["electricity"], due)
+        assert [row["name"] for row in result] == ["Electricity"]
+
+    def test_starts_with_is_ambiguous_when_several_qualify(self):
+        due = [{"name": "Electricity"}, {"name": "Electricity Plus"}]
+        result = match_name(["electric"], due)
+        assert {row["name"] for row in result} == {"Electricity", "Electricity Plus"}
+
+    def test_contains_is_case_insensitive(self):
+        due = [{"name": "HelloFresh"}, {"name": "Water"}]
+        result = match_name(["FRESH"], due)
+        assert [row["name"] for row in result] == ["HelloFresh"]
+
+    def test_no_match(self):
+        due = [{"name": "HelloFresh"}]
+        assert match_name(["rent"], due) == []

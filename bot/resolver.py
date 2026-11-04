@@ -3,7 +3,7 @@ from datetime import date
 
 import bot.cache as cache
 from bot.client import GlowWormClient
-from bot.types import Bill, Category, SinkingFund
+from bot.types import Bill, Category, DuePayment, SinkingFund
 
 
 @dataclass
@@ -19,7 +19,9 @@ class ResolveResult:
     ambiguous_names: list[str] = field(default_factory=list)
 
 
-def match_name[T: (Category, SinkingFund, Bill)](tokens: list[str], candidates: list[T]) -> list[T]:
+def match_name[T: (Category, SinkingFund, Bill, DuePayment)](
+    tokens: list[str], candidates: list[T]
+) -> list[T]:
     """Three-tier case-insensitive name matching: exact → starts-with → contains."""
     query = " ".join(tokens).lower()
 

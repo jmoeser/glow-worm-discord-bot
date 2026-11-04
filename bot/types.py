@@ -22,6 +22,21 @@ class Bill(TypedDict):
     category_id: int
 
 
+class DuePayment(TypedDict):
+    """One row from GET /api/bills/due."""
+
+    bill_id: int
+    name: str
+    provider: str
+    expected_amount: str | float
+    due_date: str
+    more_due: int
+    paid_from: str
+    paid_from_label: str
+    budget_month: str | None
+    problem: dict[str, str] | None
+
+
 class Budget(TypedDict):
     id: int
     category_id: int

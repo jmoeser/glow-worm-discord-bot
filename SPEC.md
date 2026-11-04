@@ -159,17 +159,39 @@ be a "transfer" or "income" type category depending on your setup.
 
 ---
 
-### 4. Variable recurring bill payment
+### 4. Recurring payment (`paid`)
 
 ```
 paid electricity $120
 paid electricity 98.50
+paid hellofresh
+paid hellofresh $92.40
 ```
 
 **Trigger word:** `paid`
 
-**Resolution:** Match the name against active recurring bills with `bill_type = "variable"`.
-Fixed bills are automatically paid by the scheduler and are not handled by the bot.
+The bot calls `GET /api/bills/due` and matches the name with the same case-insensitive
+tiers as other names: exact, then starts-with, then contains.
+
+- **One due payment:** `POST /api/bills/{bill_id}/confirm` with `{amount, due_date}`.
+  `due_date` is the date on the due row. `amount` is the amount in the message, or the
+  row's `expected_amount` when the message leaves it out. The reply is glow-worm's
+  `message` (it names the budget or fund, and the month when the payment is logged to a
+  budget). This is sent immediately, including when `CONFIRM_TRANSACTIONS` is on. A date
+  hint is not sent: confirm always uses the due date.
+- **Several due payments:** ask which was meant, in the same wording as other ambiguous
+  matches, and do not confirm. The choices include where the payment is paid from and
+  the due date.
+- **None:** keep the variable-bill behaviour below. That path requires an amount.
+
+If the due row includes a `problem` (no budget for that month, deleted fund, category no
+longer a budget), show `problem.detail` and do not call confirm. If loading the due list
+fails, show glow-worm's error and do not log a transaction. Confirm and skip errors
+(409 already done, 400 blocked) are shown as glow-worm's `detail` sentence.
+
+**Otherwise — variable bill, not on the due list.** Match the name against active
+recurring bills with `bill_type = "variable"`. Fixed Bills-fund bills are paid by the
+scheduler and are not handled by the bot. A date hint applies only on this path.
 
 **Transaction produced:**
 ```json
@@ -184,6 +206,31 @@ Fixed bills are automatically paid by the scheduler and are not handled by the b
 }
 ```
 
+### 4a. Skip a due payment
+
+```
+skip hellofresh
+skip city water
+```
+
+**Trigger word:** `skip`
+
+Matches the due list the same way as `paid`. One match calls
+`POST /api/bills/{bill_id}/skip` with `{due_date}` and replies with glow-worm's message.
+Several matches ask which was meant. No match reports that. A broken payment source does
+not block skip.
+
+### 4b. List due payments
+
+```
+due
+what's due
+```
+
+Replies with each due row: name, expected amount, where it is paid from, due date, and
+"+N more" when further occurrences are due. A row with a problem includes that sentence.
+An empty list says nothing is due.
+
 ---
 
 ## Trigger Word Reference
@@ -192,7 +239,9 @@ Fixed bills are automatically paid by the scheduler and are not handled by the b
 |-----------------------|---------------------------------------------------------|
 | Expense / withdrawal  | `spent`, `spend`, `buy`, `bought`, `purchase`, `purchased` |
 | Contribution          | `deposit`, `deposited`, `save`, `saved`                 |
-| Variable bill payment | `paid`                                                  |
+| Due payment / variable bill | `paid`                                            |
+| Skip a due payment    | `skip`                                                  |
+| List due payments     | `due`, `what's due`                                     |
 
 ---
 
@@ -228,11 +277,19 @@ Fixed bills are automatically paid by the scheduler and are not handled by the b
           - transaction_type = "withdrawal" (expense trigger) or "contribution" (deposit trigger).
      e. If no match in either pass → ask for clarification.
      f. If multiple matches at any step → ask for clarification.
-7. For "paid" trigger:
-     a. Extract amount from message (required).
-     b. Match remaining tokens against variable recurring bill names.
-     c. If no match or multiple matches → ask for clarification.
-8. Build the transaction payload and proceed to confirmation or auto-commit.
+7. For "paid":
+     a. Fetch GET /api/bills/due and match the name (exact, starts-with, contains).
+     b. One match → POST /api/bills/{id}/confirm with the typed amount, or the
+        expected amount, and the row's due date. Reply with glow-worm's message.
+        Do not also log a transaction.
+     c. Several matches → ask which was meant.
+     d. No match, and an amount was given → match variable bills and log a transaction
+        (a date hint applies here).
+     e. No match, and no amount → ask for an amount. Do not log a transaction.
+8. For "skip": match the due list, then POST /api/bills/{id}/skip.
+9. For "due" / "what's due": reply with the due list.
+10. Build the transaction payload and proceed to confirmation or auto-commit.
+    Due confirm and skip do not use the reaction preview.
 ```
 
 ---
@@ -258,9 +315,25 @@ DEPOSIT_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Variable bill payment
+# Variable bill payment, with an amount. Tried before the no-amount pattern.
 BILL_RE = re.compile(
     r"^paid\s+(.+?)\s+" + AMOUNT_PAT + DATE_PAT,
+    re.IGNORECASE,
+)
+
+# `paid electricity` — confirm a due payment at its expected amount.
+BILL_NO_AMOUNT_RE = re.compile(
+    r"^paid\s+(.+?)" + DATE_PAT,
+    re.IGNORECASE,
+)
+
+SKIP_RE = re.compile(
+    r"^skip\s+(.+?)" + DATE_PAT,
+    re.IGNORECASE,
+)
+
+DUE_RE = re.compile(
+    r"^(?:what['\u2019]s\s+due|whats\s+due|due)$",
     re.IGNORECASE,
 )
 ```
@@ -297,7 +370,9 @@ the transaction (budget must exist first).
 
 ## Confirmation Flow (Phase 1 — `CONFIRM_TRANSACTIONS=true`)
 
-After successful parsing and name resolution, the bot replies with an embed:
+After successful parsing and name resolution, the bot replies with an embed.
+Due-payment confirm and skip (section 4) do not use this preview; they reply
+immediately with glow-worm's message.
 
 ```
 Transaction Preview
@@ -352,6 +427,11 @@ sinking fund record.
 | Budget category matched but no budget for this month | "Found category '<category>' but no budget for <Month Year>. Create a budget for it in glow-worm first at <GLOWWORM_API_URL>." |
 | Amount missing or invalid               | "I couldn't read the amount. Try: `spent $20 groceries`"            |
 | Variable bill amount missing            | "Please include the amount: `paid electricity $120`"                |
+| `paid` matches no due payment and has no amount | "I couldn't find a due payment matching '<name>'. To log a variable bill, include the amount: `paid <name> $120`" |
+| Several due payments match              | "I found multiple matches for '<name>': <names, source, due date>. Which did you mean?" |
+| `skip` matches nothing                  | "I couldn't find a due payment matching '<name>'."                  |
+| Nothing is due                          | "Nothing is due to confirm."                                        |
+| Confirm or skip rejected (409 / 400)    | glow-worm's `detail` sentence, for example already paid, no budget for that month, or a deleted fund |
 | API error (non-2xx)                     | "Something went wrong talking to glow-worm (HTTP <status>). Try again." |
 | Network error                           | "I couldn't reach glow-worm. Is it running?"                        |
 | Message doesn't match any pattern       | (silently ignored)                                                   |
@@ -413,7 +493,8 @@ Run alongside glow-worm on a shared podman network so the bot can reach it by se
 
 - Querying transactions (planned for v2)
 - Editing or deleting existing transactions
-- Marking fixed recurring bills as paid (handled by glow-worm scheduler)
+- Marking fixed Bills-fund bills as paid (handled by glow-worm scheduler; they are not on the due list)
+- Confirming a recurring payment before it is due (the due list only includes payments due today or earlier; `paid` with no due match still logs a variable-bill transaction)
 - Income allocation workflow
 - Multi-user support (all transactions are created under the single API key owner)
 - Slash commands / command prefix interactions
