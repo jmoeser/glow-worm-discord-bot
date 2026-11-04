@@ -274,3 +274,87 @@ async def test_create_transaction_raises_on_network_like_5xx(client):
     with pytest.raises(APIError) as exc_info:
         await client.create_transaction({})
     assert exc_info.value.status_code == 503
+
+
+def test_check_uses_detail_sentence_when_code_is_present(client):
+    r = _response(409, {"detail": "Already done. Showing what's next.", "code": "stale"})
+    with pytest.raises(APIError) as exc_info:
+        client._check(r)
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Already done. Showing what's next."
+
+
+def test_check_formats_validation_error_list(client):
+    r = _response(
+        422,
+        {
+            "detail": [
+                {
+                    "loc": ["amount"],
+                    "msg": "Amount must have at most 2 decimal places.",
+                    "type": "value_error",
+                }
+            ]
+        },
+    )
+    with pytest.raises(APIError) as exc_info:
+        client._check(r)
+    assert exc_info.value.detail == "Amount must have at most 2 decimal places."
+
+
+def test_authorization_header_is_bearer_token():
+    client = GlowWormClient()
+    assert client._client.headers["Authorization"] == "Bearer test-api-key"
+
+
+@pytest.mark.asyncio
+async def test_get_due_payments(client):
+    rows = [{"bill_id": 1, "name": "HelloFresh", "due_date": "2026-10-26"}]
+    client._client.get = AsyncMock(return_value=_response(200, rows))
+
+    result = await client.get_due_payments()
+
+    client._client.get.assert_called_once_with("/api/bills/due")
+    assert result == rows
+
+
+@pytest.mark.asyncio
+async def test_confirm_bill_posts_amount_and_due_date(client):
+    body = {"message": "Logged $92.40 from Groceries budget (October 2026)."}
+    client._client.post = AsyncMock(return_value=_response(200, body))
+
+    result = await client.confirm_bill(7, "92.40", "2026-10-26")
+
+    client._client.post.assert_called_once_with(
+        "/api/bills/7/confirm",
+        json={"amount": "92.40", "due_date": "2026-10-26"},
+    )
+    assert result == body
+
+
+@pytest.mark.asyncio
+async def test_confirm_bill_raises_with_detail_on_409(client):
+    client._client.post = AsyncMock(
+        return_value=_response(
+            409, {"detail": "Already done. Showing what's next.", "code": "stale"}
+        )
+    )
+
+    with pytest.raises(APIError) as exc_info:
+        await client.confirm_bill(7, "92.40", "2026-10-26")
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Already done. Showing what's next."
+
+
+@pytest.mark.asyncio
+async def test_skip_bill_posts_due_date(client):
+    body = {"message": "Skipped 26 Oct 2026. Next due 2 Nov 2026."}
+    client._client.post = AsyncMock(return_value=_response(200, body))
+
+    result = await client.skip_bill(7, "2026-10-26")
+
+    client._client.post.assert_called_once_with(
+        "/api/bills/7/skip",
+        json={"due_date": "2026-10-26"},
+    )
+    assert result == body

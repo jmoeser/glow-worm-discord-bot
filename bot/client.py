@@ -3,7 +3,7 @@ from typing import Any, cast
 import httpx
 
 from bot import config
-from bot.types import Bill, Budget, Category, SinkingFund, TransactionPayload
+from bot.types import Bill, Budget, Category, DuePayment, SinkingFund, TransactionPayload
 
 
 class APIError(Exception):
@@ -26,11 +26,7 @@ class GlowWormClient:
     def _check(self, response: httpx.Response) -> dict[str, Any] | list[Any]:
         if response.is_success:
             return cast(dict[str, Any] | list[Any], response.json())
-        try:
-            detail = response.json().get("detail", response.text)
-        except Exception:
-            detail = response.text
-        raise APIError(response.status_code, str(detail))
+        raise APIError(response.status_code, _error_detail(response))
 
     async def get_categories(self) -> list[Category]:
         r = await self._client.get("/api/categories")
@@ -48,6 +44,25 @@ class GlowWormClient:
         r = await self._client.get("/api/bills")
         return self._check(r)  # type: ignore[return-value]
 
+    async def get_due_payments(self) -> list[DuePayment]:
+        r = await self._client.get("/api/bills/due")
+        return self._check(r)  # type: ignore[return-value]
+
+    async def confirm_bill(self, bill_id: int, amount: str, due_date: str) -> dict[str, Any]:
+        """Confirm one due occurrence. Amount is a 2-decimal string."""
+        r = await self._client.post(
+            f"/api/bills/{bill_id}/confirm",
+            json={"amount": amount, "due_date": due_date},
+        )
+        return self._check(r)  # type: ignore[return-value]
+
+    async def skip_bill(self, bill_id: int, due_date: str) -> dict[str, Any]:
+        r = await self._client.post(
+            f"/api/bills/{bill_id}/skip",
+            json={"due_date": due_date},
+        )
+        return self._check(r)  # type: ignore[return-value]
+
     async def get_budgets(self, category_id: int, month: int, year: int) -> list[Budget]:
         r = await self._client.get("/api/budgets", params={"month": month, "year": year})
         budgets: list[Budget] = self._check(r)  # type: ignore[assignment]
@@ -56,3 +71,27 @@ class GlowWormClient:
     async def create_transaction(self, payload: TransactionPayload) -> None:
         r = await self._client.post("/api/transactions", json=payload)
         self._check(r)
+
+
+def _error_detail(response: httpx.Response) -> str:
+    """Plain sentence from a glow-worm error body.
+
+    Confirm and skip return ``{"detail": "<sentence>", "code": "<code>"}``.
+    Validation errors return ``detail`` as a list of ``{msg: ...}`` objects.
+    """
+    try:
+        body = response.json()
+    except Exception:
+        return response.text
+    detail = body.get("detail", response.text) if isinstance(body, dict) else response.text
+    if isinstance(detail, str):
+        return detail
+    if isinstance(detail, list):
+        parts: list[str] = []
+        for item in detail:
+            if isinstance(item, dict) and item.get("msg"):
+                parts.append(str(item["msg"]))
+            else:
+                parts.append(str(item))
+        return "; ".join(parts) if parts else response.text
+    return str(detail)

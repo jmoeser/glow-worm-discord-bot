@@ -35,12 +35,28 @@ save $50 car fund income
 saved 25 emergency fund transfer
 ```
 
-### Variable bill payments
+### Recurring payments
+
+`paid` checks glow-worm's due list first (`GET /api/bills/due`).
 
 ```
+paid hellofresh $92.40
+paid hellofresh
 paid electricity $120
-paid electricity 98.50
+skip hellofresh
+due
+what's due
 ```
+
+- **One** due payment matches the name: the bot confirms it with `POST /api/bills/{id}/confirm` and replies with glow-worm's message. That message names the budget or fund and the month. Leave the amount out to use the expected amount. Matching is case-insensitive and uses the same exact, starts-with, then contains rules as categories and funds. A date on the message is ignored here, because the payment is dated on its due date.
+- **Several** match: the bot asks which you meant. Say the name again, more specifically.
+- **None** match: the bot logs a variable-bill transaction, as before. That needs an amount (`paid electricity $120`). A date (`yesterday`, `last friday`) applies only on this path.
+
+`skip` skips the matching due payment (`POST /api/bills/{id}/skip`). `due` and `what's due` list what is waiting, including a problem such as a missing budget.
+
+If glow-worm rejects a confirm or skip (already paid, no budget for that month, a deleted fund), the bot shows glow-worm's message.
+
+Confirming or skipping a due payment does not ask for a ✅ reaction, even when `CONFIRM_TRANSACTIONS` is on. The reaction preview still applies when `paid` logs a new transaction.
 
 ### Date keywords
 

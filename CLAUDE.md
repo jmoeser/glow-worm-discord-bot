@@ -64,6 +64,7 @@ tests/
   after the fund name in the message
 - Sinking fund contribution → `transaction_type: "contribution"`, same category requirement
 - Variable bill payment → `transaction_type: "regular"`, uses the bill's own `category_id`
+- `paid` checks `GET /api/bills/due` first. One matching due payment is confirmed with `POST /api/bills/{id}/confirm` (the typed amount, or the row's expected amount, plus that row's `due_date`). The reply is glow-worm's `message`. Several matches ask which bill was meant. No match keeps the variable-bill transaction above. `skip <name>` calls `POST /api/bills/{id}/skip`. `due` / `what's due` lists the due rows.
 
 ## Testing
 

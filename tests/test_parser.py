@@ -161,6 +161,33 @@ def test_bill_date_hint_yesterday():
     result = parse("paid electricity $120 yesterday")
     assert result is not None
     assert result.raw_date_hint == "yesterday"
+    assert result.amount == 120.0
+    assert result.raw_name_tokens == ["electricity"]
+
+
+def test_bill_without_amount():
+    result = parse("paid electricity")
+    assert result is not None
+    assert result.intent == "bill"
+    assert result.amount is None
+    assert result.raw_name_tokens == ["electricity"]
+    assert result.raw_date_hint is None
+
+
+def test_bill_without_amount_keeps_date_hint():
+    result = parse("paid city water yesterday")
+    assert result is not None
+    assert result.amount is None
+    assert result.raw_name_tokens == ["city", "water"]
+    assert result.raw_date_hint == "yesterday"
+
+
+def test_bill_trigger_case_insensitive():
+    result = parse("Paid Electricity $120")
+    assert result is not None
+    assert result.intent == "bill"
+    assert result.amount == 120.0
+    assert result.raw_name_tokens == ["Electricity"]
 
 
 def test_deposit_date_hint_last_monday():
@@ -235,9 +262,48 @@ def test_non_matching_question():
     assert parse("how much is left in groceries?") is None
 
 
-def test_non_matching_paid_no_amount():
-    # "paid electricity" with no amount
-    assert parse("paid electricity") is None
+def test_paid_alone_does_not_match():
+    assert parse("paid") is None
+
+
+def test_skip_command():
+    result = parse("skip hellofresh")
+    assert result is not None
+    assert result.intent == "skip"
+    assert result.amount is None
+    assert result.raw_name_tokens == ["hellofresh"]
+
+
+def test_skip_multi_word_and_case():
+    result = parse("Skip City Water")
+    assert result is not None
+    assert result.intent == "skip"
+    assert result.raw_name_tokens == ["City", "Water"]
+
+
+def test_skip_strips_trailing_date():
+    result = parse("skip electricity yesterday")
+    assert result is not None
+    assert result.raw_name_tokens == ["electricity"]
+    assert result.raw_date_hint == "yesterday"
+
+
+def test_skip_alone_does_not_match():
+    assert parse("skip") is None
+
+
+@pytest.mark.parametrize("text", ["due", "Due", "what's due", "whats due", "What’s due"])
+def test_due_command(text):
+    result = parse(text)
+    assert result is not None
+    assert result.intent == "due"
+    assert result.amount is None
+    assert result.raw_name_tokens == []
+
+
+def test_due_with_extra_words_does_not_match():
+    assert parse("due yesterday") is None
+    assert parse("what's due now") is None
 
 
 # ===========================================================================

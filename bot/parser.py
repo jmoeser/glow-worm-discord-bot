@@ -29,6 +29,23 @@ BILL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# `paid electricity` — amount omitted, so a due payment uses its expected amount.
+# Tried only after BILL_RE so `paid electricity $120` still captures the amount.
+BILL_NO_AMOUNT_RE = re.compile(
+    r"^paid\s+(.+?)" + DATE_PAT,
+    re.IGNORECASE,
+)
+
+SKIP_RE = re.compile(
+    r"^skip\s+(.+?)" + DATE_PAT,
+    re.IGNORECASE,
+)
+
+DUE_RE = re.compile(
+    r"^(?:what['\u2019]s\s+due|whats\s+due|due)$",
+    re.IGNORECASE,
+)
+
 _WEEKDAYS = {
     "monday": 0,
     "tuesday": 1,
@@ -47,8 +64,8 @@ _WEEKDAYS = {
 
 @dataclass
 class ParseResult:
-    intent: str  # "expense", "deposit", or "bill"
-    amount: float
+    intent: str  # "expense", "deposit", "bill", "skip", or "due"
+    amount: float | None
     raw_name_tokens: list[str]
     raw_date_hint: str | None
     raw_description: str | None
@@ -121,6 +138,37 @@ def parse(message: str) -> ParseResult | None:
             amount=float(amount_str),
             raw_name_tokens=name_text.split(),
             raw_date_hint=date_hint,
+            raw_description=None,
+        )
+
+    m = BILL_NO_AMOUNT_RE.match(text)
+    if m:
+        name_text, date_hint = m.groups()
+        return ParseResult(
+            intent="bill",
+            amount=None,
+            raw_name_tokens=name_text.split(),
+            raw_date_hint=date_hint,
+            raw_description=None,
+        )
+
+    m = SKIP_RE.match(text)
+    if m:
+        name_text, date_hint = m.groups()
+        return ParseResult(
+            intent="skip",
+            amount=None,
+            raw_name_tokens=name_text.split(),
+            raw_date_hint=date_hint,
+            raw_description=None,
+        )
+
+    if DUE_RE.match(text):
+        return ParseResult(
+            intent="due",
+            amount=None,
+            raw_name_tokens=[],
+            raw_date_hint=None,
             raw_description=None,
         )
 
