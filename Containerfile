@@ -6,7 +6,7 @@ FROM python:3.14-slim@sha256:0514bc76712d64f8bb48adcb95b1ab0d88c69fee95d62fe4c18
 RUN python -c 'import pip, sys; parts=tuple(int("".join(c for c in p if c.isdigit()) or "0") for p in pip.__version__.split(".")[:3]); sys.exit("pip %s is older than 26.2.2" % pip.__version__) if parts < (26, 2, 2) else print("pip", pip.__version__)'
 
 # Install uv for fast, reproducible dependency resolution.
-COPY --from=ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.13.10@sha256:a3ea1357342c1a4bf9a0c53a3deb1b55379aefa037338d8113d5771efa01774f /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
